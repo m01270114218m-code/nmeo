@@ -1,0 +1,11 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+[remote "origin"]
+	url = https://github.com/m01270114218m-code/vox-royale-social-club.git
+	fetch = +refs/heads/admin-asset-center:refs/remotes/origin/admin-asset-center
+[branch "admin-asset-center"]
+	remote = origin
+	merge = refs/heads/admin-asset-center
