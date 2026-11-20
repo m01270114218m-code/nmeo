@@ -72,7 +72,7 @@ jobs:
               raise SystemExit("Missing public Supabase build configuration: " + ", ".join(missing))
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
               for key, value in values.items():
-                  print(f"::{ " + "add-mask::" + "}" + value)
+                  print("::add-mask::" + value)
                   output.write(f"{key}={value}\n")
           PY
 
