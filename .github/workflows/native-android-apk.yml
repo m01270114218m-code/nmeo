@@ -69,7 +69,7 @@ jobs:
                   if "=" not in raw or raw.lstrip().startswith("#"):
                       continue
                   key, value = raw.split("=", 1)
-                  key, value = key.strip(), value.strip().strip("\\"").strip("'")
+                  key, value = key.strip(), value.strip().strip('"').strip("'")
                   if key in ("SUPABASE_URL", "VITE_SUPABASE_URL") and not values["SUPABASE_URL"]:
                       values["SUPABASE_URL"] = value
                   if key in ("SUPABASE_PUBLISHABLE_KEY", "VITE_SUPABASE_PUBLISHABLE_KEY") and not values["SUPABASE_PUBLISHABLE_KEY"]:
