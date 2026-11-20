@@ -1,9 +1,15 @@
 package com.voxroyale.nativeapp
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,6 +18,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import io.github.jan.supabase.auth.handleDeeplinks
+import io.github.jan.supabase.auth.providers.Google
+import io.github.jan.supabase.auth.providers.builtin.OTP
+import io.github.jan.supabase.auth.OtpType
+import io.github.jan.supabase.auth.status.SessionStatus
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,12 +49,244 @@ internal enum class Destination(val label: String) {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (SupabaseRuntimeConfig.isConfigured) NativeSupabase.client.handleDeeplinks(intent)
         setContent { VoxRoyaleApp() }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (SupabaseRuntimeConfig.isConfigured) NativeSupabase.client.handleDeeplinks(intent)
     }
 }
 
 @Composable
 private fun VoxRoyaleApp() {
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    var authenticated by remember { mutableStateOf(false) }
+    var initializing by remember { mutableStateOf(SupabaseRuntimeConfig.isConfigured) }
+
+    fun showNotice(message: String) {
+        scope.launch {
+            val noticeJob = launch {
+                snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Indefinite)
+            }
+            delay(2000)
+            snackbarHostState.currentSnackbarData?.dismiss()
+            noticeJob.cancel()
+        }
+    }
+
+    LaunchedEffect(SupabaseRuntimeConfig.isConfigured) {
+        if (!SupabaseRuntimeConfig.isConfigured) {
+            initializing = false
+            authenticated = false
+            return@LaunchedEffect
+        }
+        NativeSupabase.client.auth.sessionStatus.collect { status ->
+            initializing = status == SessionStatus.Initializing
+            authenticated = status is SessionStatus.Authenticated
+        }
+    }
+
+    when {
+        !SupabaseRuntimeConfig.isConfigured -> SupabaseSetupScreen()
+        initializing -> NativeLoadingScreen()
+        !authenticated -> NativeAuthScreen(snackbarHostState, ::showNotice)
+        else -> MainAppContent(
+            snackbarHostState = snackbarHostState,
+            onSignOut = {
+                scope.launch {
+                    try {
+                        NativeSupabase.client.auth.signOut()
+                        showNotice("تم تسجيل الخروج")
+                    } catch (error: Exception) {
+                        showNotice(error.message ?: "تعذر تسجيل الخروج")
+                    }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun NativeLoadingScreen() {
+    MaterialTheme(colorScheme = lightColorScheme(primary = Brand, background = Ink)) {
+        Box(Modifier.fillMaxSize().background(Ink), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Brand)
+                Spacer(Modifier.height(14.dp))
+                Text("جارٍ تجهيز حسابك...", color = TextMain, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SupabaseSetupScreen() {
+    MaterialTheme(colorScheme = lightColorScheme(primary = Brand, background = Ink)) {
+        Box(Modifier.fillMaxSize().background(Ink).padding(24.dp), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(Icons.Default.CloudOff, null, tint = Brand, modifier = Modifier.size(54.dp))
+                Spacer(Modifier.height(16.dp))
+                Text("تعذر إعداد الاتصال", color = TextMain, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "يلزم توفير عنوان Supabase ومفتاح النشر العام في إعدادات بناء Android.",
+                    color = TextMuted,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NativeAuthScreen(
+    snackbarHostState: SnackbarHostState,
+    onNotice: (String) -> Unit
+) {
+    var phone by remember { mutableStateOf("+20") }
+    var otp by remember { mutableStateOf("") }
+    var otpSent by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val phoneNumber = phone.trim()
+    val validPhone = Regex("^\\\\+[1-9]\\\\d{7,14}$").matches(phoneNumber)
+
+    MaterialTheme(colorScheme = lightColorScheme(primary = Brand, background = Ink)) {
+        Scaffold(
+            snackbarHost = { StyledSnackbarHost(snackbarHostState) },
+            containerColor = Ink,
+            snackbarHost = { StyledSnackbarHost(snackbarHostState) }
+        ) { padding ->
+            Column(
+                Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("VOX ROYALE", color = Brand, fontSize = 29.sp, fontWeight = FontWeight.Black, letterSpacing = 1.5.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("مرحبًا بك في مجتمعك الصوتي", color = TextMuted, fontSize = 14.sp)
+                Spacer(Modifier.height(30.dp))
+                Surface(color = SurfaceWhite, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(20.dp)) {
+                        Text("تسجيل الدخول", color = TextMain, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(7.dp))
+                        Text("استخدم رقم هاتفك أو حساب Google للمتابعة.", color = TextMuted, fontSize = 12.sp)
+                        Spacer(Modifier.height(18.dp))
+                        OutlinedTextField(
+                            value = phone,
+                            onValueChange = { phone = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !busy && !otpSent,
+                            singleLine = true,
+                            label = { Text("رقم الهاتف بالصيغة الدولية") },
+                            placeholder = { Text("+2010xxxxxxxx") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone)
+                        )
+                        if (otpSent) {
+                            Spacer(Modifier.height(12.dp))
+                            OutlinedTextField(
+                                value = otp,
+                                onValueChange = { otp = it.filter(Char::isDigit).take(6) },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !busy,
+                                singleLine = true,
+                                label = { Text("رمز التحقق") },
+                                placeholder = { Text("أدخل الرمز المكوّن من 6 أرقام") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            )
+                        }
+                        Spacer(Modifier.height(14.dp))
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    busy = true
+                                    try {
+                                        if (!otpSent) {
+                                            NativeSupabase.client.auth.signInWith(OTP) { phone = phoneNumber }
+                                            otpSent = true
+                                            onNotice("تم إرسال رمز التحقق إلى هاتفك")
+                                        } else {
+                                            NativeSupabase.client.auth.verifyPhoneOtp(
+                                                type = OtpType.Phone.SMS,
+                                                phone = phoneNumber,
+                                                token = otp.trim()
+                                            )
+                                            onNotice("تم التحقق من رقم الهاتف")
+                                        }
+                                    } catch (error: Exception) {
+                                        onNotice(error.message ?: "تعذر إكمال تسجيل الدخول")
+                                    } finally {
+                                        busy = false
+                                    }
+                                }
+                            },
+                            enabled = !busy && (if (otpSent) otp.length == 6 else validPhone),
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            if (busy) CircularProgressIndicator(Modifier.size(19.dp), color = Color.White, strokeWidth = 2.dp)
+                            else Text(if (otpSent) "تأكيد الرمز" else "إرسال رمز SMS")
+                        }
+                        if (otpSent) {
+                            TextButton(
+                                onClick = { otpSent = false; otp = "" },
+                                enabled = !busy,
+                                modifier = Modifier.align(Alignment.CenterHorizontally)
+                            ) { Text("تغيير رقم الهاتف") }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                scope.launch {
+                                    busy = true
+                                    try {
+                                        NativeSupabase.client.auth.signInWith(Google)
+                                        onNotice("جارٍ فتح تسجيل الدخول باستخدام Google")
+                                    } catch (error: Exception) {
+                                        onNotice(error.message ?: "تعذر بدء تسجيل Google")
+                                        busy = false
+                                    }
+                                }
+                            },
+                            enabled = !busy,
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Text("المتابعة باستخدام Google", color = TextMain, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(18.dp))
+                Text("تتم حماية جلسة الدخول وإدارتها عبر Supabase.", color = TextMuted, fontSize = 11.sp, textAlign = TextAlign.Center)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StyledSnackbarHost(hostState: SnackbarHostState) {
+    SnackbarHost(hostState = hostState) { data ->
+        Box(
+            Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(Brush.horizontalGradient(listOf(Color(0xE61D4ED8), Color(0xE65B21B6))))
+                .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(18.dp))
+                .padding(horizontal = 18.dp, vertical = 13.dp)
+        ) {
+            Text(data.visuals.message, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable
+private fun MainAppContent(
+    onSignOut: () -> Unit,
+    snackbarHostState: SnackbarHostState
+) {
     var destination by remember { mutableStateOf(Destination.Discover) }
     MaterialTheme(
         colorScheme = lightColorScheme(
@@ -87,7 +332,7 @@ private fun VoxRoyaleApp() {
                 Destination.Rooms -> RoomsScreen(Modifier.padding(padding))
                 Destination.Chats -> ChatsScreen(Modifier.padding(padding))
                 Destination.Moments -> MomentsScreen(Modifier.padding(padding))
-                Destination.Me -> ProfileScreen(Modifier.padding(padding))
+                Destination.Me -> ProfileScreen(Modifier.padding(padding), onSignOut)
             }
         }
     }
@@ -124,7 +369,6 @@ private fun DiscoverScreen(modifier: Modifier = Modifier, onRooms: () -> Unit) {
                 }
             }
         }
-        item { BackendConfigurationNotice() }
         item { SectionTitle("الوصول السريع") }
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -195,7 +439,7 @@ private fun MomentsScreen(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ProfileScreen(modifier: Modifier = Modifier) {
+private fun ProfileScreen(modifier: Modifier = Modifier, onSignOut: () -> Unit) {
     Column(modifier.fillMaxSize()) {
         ScreenHeader("حسابي", "ملفك الشخصي وإعداداتك")
         Surface(color = SurfaceWhite, shape = RoundedCornerShape(18.dp), modifier = Modifier.padding(16.dp).fillMaxWidth()) {
@@ -205,9 +449,9 @@ private fun ProfileScreen(modifier: Modifier = Modifier) {
                 }
                 Spacer(Modifier.height(10.dp))
                 Text("ملف VOX ROYALE", color = TextMain, fontWeight = FontWeight.Bold)
-                Text("سجّل الدخول لعرض بيانات حسابك", color = TextMuted, fontSize = 12.sp)
+                Text("أنت مسجل الدخول", color = TextMuted, fontSize = 12.sp)
                 Spacer(Modifier.height(12.dp))
-                Button(onClick = {}, shape = RoundedCornerShape(12.dp)) { Text("تسجيل الدخول") }
+                Button(onClick = onSignOut, shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB4233A))) { Text("تسجيل الخروج") }
             }
         }
         ProfileRow(Icons.Default.AccountBalanceWallet, "المحفظة", "الرصيد وسجل المعاملات")
