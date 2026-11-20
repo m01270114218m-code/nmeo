@@ -4,10 +4,11 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - admin-asset-center
+      - new-uploaded-project
     paths:
       - "native-android/**"
       - ".github/workflows/native-android-apk.yml"
+      - ".env"
 
 permissions:
   contents: read
@@ -41,6 +42,40 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
+      - name: Load public Supabase client configuration
+        env:
+          SUPABASE_URL_SECRET: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY_SECRET: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          values = {
+              "SUPABASE_URL": os.environ.get("SUPABASE_URL_SECRET", ""),
+              "SUPABASE_PUBLISHABLE_KEY": os.environ.get("SUPABASE_PUBLISHABLE_KEY_SECRET", ""),
+          }
+          env_file = Path(".env")
+          if env_file.exists():
+              for raw in env_file.read_text(encoding="utf-8").splitlines():
+                  if "=" not in raw or raw.lstrip().startswith("#"):
+                      continue
+                  key, value = raw.split("=", 1)
+                  key, value = key.strip(), value.strip().strip("\\"").strip("'")
+                  if key in ("SUPABASE_URL", "VITE_SUPABASE_URL") and not values["SUPABASE_URL"]:
+                      values["SUPABASE_URL"] = value
+                  if key in ("SUPABASE_PUBLISHABLE_KEY", "VITE_SUPABASE_PUBLISHABLE_KEY") and not values["SUPABASE_PUBLISHABLE_KEY"]:
+                      values["SUPABASE_PUBLISHABLE_KEY"] = value
+
+          missing = [key for key, value in values.items() if not value]
+          if missing:
+              raise SystemExit("Missing public Supabase build configuration: " + ", ".join(missing))
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              for key, value in values.items():
+                  print(f"::{ " + "add-mask::" + "}" + value)
+                  output.write(f"{key}={value}\n")
+          PY
+
       - name: Verify build toolchain
         run: |
           java -version
@@ -50,15 +85,15 @@ jobs:
       - name: Run native unit tests
         working-directory: native-android
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ env.SUPABASE_PUBLISHABLE_KEY }}
         run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Compile native debug APK
         working-directory: native-android
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ env.SUPABASE_PUBLISHABLE_KEY }}
         run: gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Verify APK exists
