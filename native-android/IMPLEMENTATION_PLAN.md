@@ -1,6 +1,6 @@
 # VOX ROYALE Native Android — Delivery Plan
 
-This plan applies to the existing VOX ROYALE repository and the `vox-royale-native-yalla-chat` branch. It does not replace the legacy application, Supabase project, migrations, or production data.
+This plan applies to the existing VOX ROYALE repository and the `new-uploaded-project` branch. It does not replace the legacy application, Supabase project, migrations, or production data.
 
 ## Product direction
 
@@ -48,7 +48,7 @@ No users, rooms, messages, wallet balances, gifts or inventory are to be fabrica
 
 ## Change and verification policy
 
-- Work on `vox-royale-native-yalla-chat`; do not modify `main`.
+- Work on `new-uploaded-project`; do not modify `main`.
 - Preserve the existing React/Capacitor app and Supabase migrations as the product/backend reference.
 - For each milestone, run the relevant tests and native APK workflow, inspect the logs and artifact, and report what passed and what remains.
 - Never describe an APK as ready unless the build is successful and the APK artifact is present.
