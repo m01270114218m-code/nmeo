@@ -153,13 +153,12 @@ private fun NativeAuthScreen(
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val phoneNumber = phone.trim()
-    val validPhone = Regex("^\\\\+[1-9]\\\\d{7,14}$").matches(phoneNumber)
+    val validPhone = Regex("^\\+[1-9]\\d{7,14}$").matches(phoneNumber)
 
     MaterialTheme(colorScheme = lightColorScheme(primary = Brand, background = Ink)) {
         Scaffold(
             snackbarHost = { StyledSnackbarHost(snackbarHostState) },
-            containerColor = Ink,
-            snackbarHost = { StyledSnackbarHost(snackbarHostState) }
+            containerColor = Ink
         ) { padding ->
             Column(
                 Modifier.fillMaxSize().padding(padding).padding(horizontal = 24.dp),
@@ -206,7 +205,7 @@ private fun NativeAuthScreen(
                                     busy = true
                                     try {
                                         if (!otpSent) {
-                                            NativeSupabase.client.auth.signInWith(OTP) { phone = phoneNumber }
+                                            NativeSupabase.client.auth.signInWith(OTP) { this.phone = phoneNumber }
                                             otpSent = true
                                             onNotice("تم إرسال رمز التحقق إلى هاتفك")
                                         } else {
@@ -299,6 +298,7 @@ private fun MainAppContent(
         )
     ) {
         Scaffold(
+            snackbarHost = { StyledSnackbarHost(snackbarHostState) },
             containerColor = Ink,
             bottomBar = {
                 NavigationBar(containerColor = SurfaceWhite, tonalElevation = 8.dp) {
